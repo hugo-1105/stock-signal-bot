@@ -6,7 +6,7 @@ US Multi-Stock Signal Bot — Twelve Data + Telegram + Google Sheets
 - Each stock logs to its own Google Sheet tab
 - Runs only during US market hours (14:30–21:00 UK)
 """
-
+import os
 import time
 import requests
 import gspread
@@ -14,8 +14,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import pytz
 
+API_KEY = os.getenv("TWELVE_DATA_API_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
 # ========== CONFIG ==========
-TWELVE_API_KEY = "c876b8954f4c464386411a5b8ca1a462"
 STOCKS = ["MSFT", "NVDA", "AAPL", "GOOGL", "AMZN"]
 INTERVAL = "15min"
 
@@ -25,10 +27,6 @@ RSI_PERIOD = 14
 MACD_SHORT, MACD_LONG, MACD_SIGNAL = 12, 26, 9
 EMA_PERIOD = 20
 BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
-
-# Telegram
-TELEGRAM_TOKEN = "8067357310:AAFA2BjwIu1nJXsG_iksu4d1b5xp3SxGPXg"
-TELEGRAM_CHAT_ID = "6536416945"
 
 # Google Sheets
 CREDENTIALS_FILE = "credentials.json"
@@ -244,3 +242,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
