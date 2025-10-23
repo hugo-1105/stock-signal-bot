@@ -1,0 +1,17 @@
+# Use official Python 3.12.6 image
+FROM python:3.12.6-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy your project files
+COPY . .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Set environment variables (optional)
+ENV PYTHONUNBUFFERED=1
+
+# Start the bot
+CMD ["python", "Stock_Auto.py"]
