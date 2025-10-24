@@ -13,7 +13,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import pytz
-
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 SHEET_ID = os.getenv("GOOGLE_SHEET_ID")
@@ -53,7 +53,7 @@ def setup_google_sheets():
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
         client = gspread.authorize(creds)
-        sheet = client.open(SHEET_NAME)
+        sheet = client.open_by_key(SHEET_ID)
         return sheet
     except Exception as e:
         print(f"⚠️ Google Sheets setup error: {e}")
@@ -62,7 +62,7 @@ def setup_google_sheets():
 
 def td_request(endpoint, params):
     base = "https://api.twelvedata.com"
-    params["apikey"] = TWELVE_API_KEY
+    params["apikey"] = API_KEY
     try:
         r = requests.get(f"{base}/{endpoint}", params=params, timeout=10)
         j = r.json()
@@ -242,4 +242,5 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
