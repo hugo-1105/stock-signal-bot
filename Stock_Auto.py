@@ -2,6 +2,7 @@ import time
 import threading
 import requests
 import pytz
+import os
 from datetime import datetime
 from flask import Flask
 
@@ -88,4 +89,5 @@ if __name__ == "__main__":
     threading.Thread(target=stock_bot, daemon=True).start()
     # Keep Render alive with Flask server
     app.run(host="0.0.0.0", port=8080)
+
 
