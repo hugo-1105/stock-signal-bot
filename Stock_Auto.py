@@ -11,6 +11,19 @@ import requests
 import os
 from datetime import datetime
 import pytz
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+
+def keep_alive():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    print(f"✅ Render keep-alive server running on port {port}")
+    server.serve_forever()
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
+# Your existing bot code below
+run_stock_bot()  # for example
 
 # ========== CONFIG ==========
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
@@ -221,3 +234,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
