@@ -80,8 +80,8 @@ def stock_bot():
                 send_telegram(message)
                 time.sleep(60)
         else:
-            print("Market closed. Sleeping for 30 minutes.")
-            time.sleep(1800)
+            print("Market closed. Sleeping for 10 minutes.")
+            time.sleep(600)
 
 
 if __name__ == "__main__":
@@ -89,5 +89,6 @@ if __name__ == "__main__":
     threading.Thread(target=stock_bot, daemon=True).start()
     # Keep Render alive with Flask server
     app.run(host="0.0.0.0", port=8080)
+
 
 
