@@ -1,227 +1,160 @@
-"""
-US Multi-Stock Signal Bot — Twelve Data + Telegram (Render version)
-- 5 stocks, checked every 20 min (offset to respect rate limits)
-- Uses Price + SMA + RSI + Bollinger Bands + MACD (fallback EMA slope)
-- Telegram alert only if NOT HOLD
-- Runs only during US market hours (14:30–21:00 UK)
-- Keeps a background web server alive for Render
-"""
-
-import os
-import time
 import threading
-from http.server import SimpleHTTPRequestHandler, HTTPServer
-from datetime import datetime
-import pytz
+import time
 import requests
+import pandas as pd
+import numpy as np
+import pytz
+from datetime import datetime
+from flask import Flask
 
-# ========== CONFIG ==========
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY", "c876b8954f4c464386411a5b8ca1a462")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8067357310:AAFA2BjwIu1nJXsG_iksu4d1b5xp3SxGPXg")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6536416945")
+# ------------------------------------------------------
+# CONFIGURATION
+# ------------------------------------------------------
+API_KEY = "d3251l1r01qn0gi2ens0d3251r01qn0gi2ensg"
+STOCKS = ["NVDA", "AAPL", "TSLA"]
+TELEGRAM_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID"
+GOOGLE_SHEETS_WEBAPP_URL = "YOUR_GOOGLE_SHEETS_WEBAPP_URL"
 
-STOCKS = ["MSFT", "NVDA", "AAPL", "GOOGL", "AMZN"]
-INTERVAL = "15min"
-
-SMA_PERIOD = 20
-RSI_PERIOD = 14
-MACD_SHORT, MACD_LONG, MACD_SIGNAL = 12, 26, 9
-EMA_PERIOD = 20
-BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
-
-UK_TZ = pytz.timezone("Europe/London")
+# Market hours (UK time)
 MARKET_OPEN = (14, 30)
 MARKET_CLOSE = (21, 0)
-# ============================
+
+# Flask app for Render health check
+app = Flask(__name__)
 
 
-# ---------- KEEP-ALIVE SERVER (for Render) ----------
-def keep_alive():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
-    print(f"🌍 Render keep-alive server running on port {port}")
-    server.serve_forever()
+# ------------------------------------------------------
+# HELPER FUNCTIONS
+# ------------------------------------------------------
+def get_stock_data(symbol):
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1h&apikey={API_KEY}&outputsize=100"
+    response = requests.get(url)
+    data = response.json()
+    if "values" not in data:
+        raise ValueError(f"Error fetching {symbol}: {data}")
+    df = pd.DataFrame(data["values"])
+    df["datetime"] = pd.to_datetime(df["datetime"])
+    df = df.sort_values("datetime")
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    return df
 
 
-threading.Thread(target=keep_alive, daemon=True).start()
-# ----------------------------------------------------
+def calculate_indicators(df):
+    # SMA
+    df["SMA20"] = df["close"].rolling(window=20).mean()
+    df["SMA50"] = df["close"].rolling(window=50).mean()
+
+    # RSI
+    delta = df["close"].diff()
+    gain = np.where(delta > 0, delta, 0)
+    loss = np.where(delta < 0, -delta, 0)
+    avg_gain = pd.Series(gain).rolling(window=14).mean()
+    avg_loss = pd.Series(loss).rolling(window=14).mean()
+    rs = avg_gain / avg_loss
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # MACD
+    exp1 = df["close"].ewm(span=12, adjust=False).mean()
+    exp2 = df["close"].ewm(span=26, adjust=False).mean()
+    df["MACD"] = exp1 - exp2
+    df["Signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+
+    # Bollinger Bands
+    df["MiddleBand"] = df["close"].rolling(window=20).mean()
+    df["UpperBand"] = df["MiddleBand"] + 2 * df["close"].rolling(window=20).std()
+    df["LowerBand"] = df["MiddleBand"] - 2 * df["close"].rolling(window=20).std()
+    return df
 
 
-# ---------- TELEGRAM ----------
-def send_telegram(msg: str):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
-        requests.post(url, data=payload, timeout=10)
-    except Exception as e:
-        print(f"⚠️ Telegram error: {e}")
+def analyze_signals(df):
+    last = df.iloc[-1]
+    signals = []
 
-
-# ---------- TWELVE DATA ----------
-def td_request(endpoint, params):
-    base = "https://api.twelvedata.com"
-    params["apikey"] = TWELVE_API_KEY
-    try:
-        r = requests.get(f"{base}/{endpoint}", params=params, timeout=10)
-        j = r.json()
-        if "status" in j and j["status"] == "error":
-            print(f"⚠️ Error {endpoint}: {j.get('message')}")
-            return None
-        return j
-    except Exception as e:
-        print(f"⚠️ Request exception for {endpoint}: {e}")
-        return None
-
-
-def get_price(symbol):
-    j = td_request("price", {"symbol": symbol})
-    try:
-        return float(j.get("price"))
-    except:
-        return None
-
-
-def get_sma(symbol):
-    j = td_request("sma", {"symbol": symbol, "interval": INTERVAL, "time_period": SMA_PERIOD})
-    try:
-        return float(j["values"][0]["sma"])
-    except:
-        return None
-
-
-def get_macd(symbol):
-    j = td_request("macd", {
-        "symbol": symbol, "interval": INTERVAL,
-        "short_period": MACD_SHORT, "long_period": MACD_LONG, "signal_period": MACD_SIGNAL
-    })
-    try:
-        v = j["values"][0]
-        return float(v["macd"]), float(v["signal"])
-    except:
-        return None
-
-
-def get_ema_slope(symbol):
-    j = td_request("ema", {"symbol": symbol, "interval": INTERVAL, "time_period": EMA_PERIOD, "outputsize": 30})
-    try:
-        vals = [float(v["ema"]) for v in j["values"]]
-        if len(vals) < 2:
-            return 0
-        return vals[0] - vals[-1]
-    except:
-        return 0
-
-
-def get_rsi(symbol):
-    j = td_request("rsi", {"symbol": symbol, "interval": INTERVAL, "time_period": RSI_PERIOD})
-    try:
-        return float(j["values"][0]["rsi"])
-    except:
-        return None
-
-
-def get_bbands(symbol):
-    j = td_request("bbands", {
-        "symbol": symbol, "interval": INTERVAL,
-        "time_period": BBANDS_PERIOD, "stddev": BBANDS_STDDEV
-    })
-    try:
-        v = j["values"][0]
-        return float(v["upper_band"]), float(v["middle_band"]), float(v["lower_band"])
-    except:
-        return None
-
-
-# ---------- SIGNAL DECISION ----------
-def decide_signal(price, sma, macd, rsi, bb, ema_slope):
-    if None in (price, sma, rsi, bb):
-        return "INSUFFICIENT_DATA", 0, []
-
-    upper, mid, lower = bb
-    score, reasons = 0, []
-
-    if rsi < 30: score += 2; reasons.append("RSI oversold +2")
-    elif rsi < 40: score += 1; reasons.append("RSI low +1")
-    elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
-    elif rsi > 60: score -= 1; reasons.append("RSI high -1")
-
-    if macd:
-        macd_val, macd_sig = macd
-        if macd_val > macd_sig: score += 1; reasons.append("MACD bullish +1")
-        else: score -= 1; reasons.append("MACD bearish -1")
+    if last["RSI"] < 30 and last["close"] < last["LowerBand"]:
+        signals.append("Strong Buy")
+    elif last["RSI"] < 40 and last["SMA20"] > last["SMA50"]:
+        signals.append("Weak Buy")
+    elif last["RSI"] > 70 and last["close"] > last["UpperBand"]:
+        signals.append("Strong Sell")
+    elif last["RSI"] > 60 and last["SMA20"] < last["SMA50"]:
+        signals.append("Weak Sell")
     else:
-        if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
-        elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
+        signals.append("Hold")
 
-    if price > sma: score += 1; reasons.append("Price above SMA +1")
-    else: score -= 1; reasons.append("Price below SMA -1")
-
-    if price >= upper: score -= 1; reasons.append("Near upper band -1")
-    elif price <= lower: score += 1; reasons.append("Near lower band +1")
-
-    if score >= 3: signal = "STRONG BUY"
-    elif score == 2: signal = "WEAK BUY"
-    elif score == -2: signal = "WEAK SELL"
-    elif score <= -3: signal = "STRONG SELL"
-    else: signal = "HOLD"
-
-    return signal, score, reasons
+    return signals[-1]
 
 
-# ---------- MARKET CHECK ----------
-def market_open_now():
-    now = datetime.now(UK_TZ)
-    if now.weekday() >= 5:
-        return False
-    h, m = now.hour, now.minute
-    if (h, m) < MARKET_OPEN or (h, m) >= MARKET_CLOSE:
-        return False
-    return True
+def send_telegram_alert(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        print("Error sending Telegram alert:", e)
 
 
-# ---------- MAIN BOT LOOP ----------
-def process_stock(symbol):
-    ts = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
-
-    price = get_price(symbol)
-    sma = get_sma(symbol)
-    macd = get_macd(symbol)
-    ema_slope = get_ema_slope(symbol) if macd is None else 0
-    rsi = get_rsi(symbol)
-    bb = get_bbands(symbol)
-
-    signal, score, reasons = decide_signal(price, sma, macd, rsi, bb, ema_slope)
-
-    print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
-
-    if signal not in ("HOLD", "INSUFFICIENT_DATA"):
-        msg = (
-            f"📊 {symbol} ({ts} UK)\n"
-            f"Decision: {signal}\nScore: {score}\n"
-            f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
-            f"MACD: {macd}\nEMA slope: {ema_slope:.4f}\nBB: {bb}"
-        )
-        send_telegram(msg)
+def log_to_google_sheets(symbol, signal, price):
+    payload = {"symbol": symbol, "signal": signal, "price": price}
+    try:
+        requests.post(GOOGLE_SHEETS_WEBAPP_URL, json=payload)
+    except Exception as e:
+        print("Error logging to Google Sheets:", e)
 
 
-def main_loop():
-    print("🚀 Multi-Stock Signal Bot started — running every 20 min (staggered).")
+def is_market_open():
+    now = datetime.now(pytz.timezone("Europe/London"))
+    open_time = now.replace(hour=MARKET_OPEN[0], minute=MARKET_OPEN[1], second=0)
+    close_time = now.replace(hour=MARKET_CLOSE[0], minute=MARKET_CLOSE[1], second=0)
+    return open_time <= now <= close_time
 
+
+# ------------------------------------------------------
+# MAIN BOT LOOP
+# ------------------------------------------------------
+def run_stock_bot():
     while True:
-        if market_open_now():
-            for i, symbol in enumerate(STOCKS):
-                print(f"\n=== Checking {symbol} ===")
-                process_stock(symbol)
-                if i < len(STOCKS) - 1:
-                    print("Sleeping 4 minutes before next stock...")
-                    time.sleep(4 * 60)
-            print("Cycle complete. Waiting 20 minutes before next round.\n")
-            time.sleep(20 * 60)
+        if is_market_open():
+            print("🟢 Market open — checking signals...")
+            summary = []
+
+            for stock in STOCKS:
+                try:
+                    df = get_stock_data(stock)
+                    df = calculate_indicators(df)
+                    signal = analyze_signals(df)
+                    price = df["close"].iloc[-1]
+                    log_to_google_sheets(stock, signal, price)
+                    summary.append(f"{stock}: {signal}")
+
+                except Exception as e:
+                    print(f"Error with {stock}:", e)
+
+            if summary:
+                alert_message = "📊 Stock Signals:\n" + "\n".join(summary)
+                send_telegram_alert(alert_message)
+                print(alert_message)
         else:
-            now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{now}] Market closed — sleeping 15 min.")
-            time.sleep(900)
+            print("🔴 Market closed — sleeping...")
+
+        time.sleep(3600)  # check every hour
 
 
+# ------------------------------------------------------
+# FLASK APP (RENDER HEALTH CHECK)
+# ------------------------------------------------------
+@app.route("/")
+def home():
+    return "✅ Stock Signal Bot is running on Render."
+
+
+# ------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------
 if __name__ == "__main__":
-    main_loop()
+    bot_thread = threading.Thread(target=run_stock_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+
+    # Keep web server running for Render
+    app.run(host="0.0.0.0", port=8080)
