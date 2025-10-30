@@ -1,17 +1,25 @@
 import time
+import threading
 import requests
 import pytz
 from datetime import datetime
-import os
+from flask import Flask
+
+# --- Flask keepalive web server ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Stock Signal Bot is running ✅"
+
+# --- Telegram + Twelve Data Config ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 API_KEY = os.getenv("API_KEY")
 BASE_URL = "https://api.twelvedata.com"
 
-# Stock List
 STOCKS = ["AAPL", "MSFT", "AMZN", "NVDA", "GOOGL"]
 
-# Market hours (14:30–21:00 UK)
 UK_TZ = pytz.timezone("Europe/London")
 MARKET_OPEN_HOUR = 14
 MARKET_CLOSE_HOUR = 21
@@ -24,13 +32,8 @@ def send_telegram(message):
 
 
 def get_indicator(symbol):
-    """Fetch and calculate trading signals from Twelve Data"""
-    # Fetch latest indicators
-    params = {
-        "symbol": symbol,
-        "interval": "1min",
-        "apikey": API_KEY,
-    }
+    """Fetch and calculate trading signals"""
+    params = {"symbol": symbol, "interval": "1min", "apikey": API_KEY}
 
     rsi = requests.get(f"{BASE_URL}/rsi", params=params).json()
     macd = requests.get(f"{BASE_URL}/macd", params=params).json()
@@ -46,7 +49,6 @@ def get_indicator(symbol):
     except (KeyError, IndexError, ValueError):
         return f"{symbol}: Data unavailable"
 
-    # Decision logic
     signal = "Hold"
     if rsi_value < 30 and macd_value > macd_signal and price < lower:
         signal = "Strong Buy"
@@ -66,7 +68,8 @@ def market_open():
     return MARKET_OPEN_HOUR <= now.hour < MARKET_CLOSE_HOUR
 
 
-def main():
+def stock_bot():
+    """Main bot loop"""
     print("Starting Stock Signal Bot...")
     while True:
         if market_open():
@@ -74,11 +77,15 @@ def main():
                 message = get_indicator(symbol)
                 print(f"[{datetime.now(UK_TZ).strftime('%H:%M:%S')}] {message}")
                 send_telegram(message)
-                time.sleep(60)  # wait 1 minute between stocks
+                time.sleep(60)
         else:
             print("Market closed. Sleeping for 30 minutes.")
-            time.sleep(1800)  # check every 30 min when closed
+            time.sleep(1800)
 
 
 if __name__ == "__main__":
-    main()
+    # Run bot in background
+    threading.Thread(target=stock_bot, daemon=True).start()
+    # Keep Render alive with Flask server
+    app.run(host="0.0.0.0", port=8080)
+
