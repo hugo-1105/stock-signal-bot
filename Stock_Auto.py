@@ -1,50 +1,53 @@
 """
-US Multi-Stock Signal Bot — Twelve Data + Telegram
+US Multi-Stock Signal Bot — Twelve Data + Telegram (Render version)
 - 5 stocks, checked every 20 min (offset to respect rate limits)
 - Uses Price + SMA + RSI + Bollinger Bands + MACD (fallback EMA slope)
 - Telegram alert only if NOT HOLD
 - Runs only during US market hours (14:30–21:00 UK)
+- Keeps a background web server alive for Render
 """
 
-import time
-import requests
 import os
-from datetime import datetime
-import pytz
+import time
 import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
-
-def keep_alive():
-    port = int(os.environ.get("PORT", 8080))
-    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
-    print(f"✅ Render keep-alive server running on port {port}")
-    server.serve_forever()
-
-threading.Thread(target=keep_alive, daemon=True).start()
+from datetime import datetime
+import pytz
+import requests
 
 # ========== CONFIG ==========
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TWELVE_API_KEY = os.getenv("TWELVE_API_KEY", "c876b8954f4c464386411a5b8ca1a462")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "8067357310:AAFA2BjwIu1nJXsG_iksu4d1b5xp3SxGPXg")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "6536416945")
 
 STOCKS = ["MSFT", "NVDA", "AAPL", "GOOGL", "AMZN"]
 INTERVAL = "15min"
 
-# Indicator settings
 SMA_PERIOD = 20
 RSI_PERIOD = 14
 MACD_SHORT, MACD_LONG, MACD_SIGNAL = 12, 26, 9
 EMA_PERIOD = 20
 BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
 
-# Market hours (UK)
 UK_TZ = pytz.timezone("Europe/London")
 MARKET_OPEN = (14, 30)
 MARKET_CLOSE = (21, 0)
 # ============================
 
 
+# ---------- KEEP-ALIVE SERVER (for Render) ----------
+def keep_alive():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), SimpleHTTPRequestHandler)
+    print(f"🌍 Render keep-alive server running on port {port}")
+    server.serve_forever()
 
+
+threading.Thread(target=keep_alive, daemon=True).start()
+# ----------------------------------------------------
+
+
+# ---------- TELEGRAM ----------
 def send_telegram(msg: str):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -54,6 +57,7 @@ def send_telegram(msg: str):
         print(f"⚠️ Telegram error: {e}")
 
 
+# ---------- TWELVE DATA ----------
 def td_request(endpoint, params):
     base = "https://api.twelvedata.com"
     params["apikey"] = TWELVE_API_KEY
@@ -68,8 +72,6 @@ def td_request(endpoint, params):
         print(f"⚠️ Request exception for {endpoint}: {e}")
         return None
 
-
-# ---------- Indicators ----------
 
 def get_price(symbol):
     j = td_request("price", {"symbol": symbol})
@@ -130,8 +132,7 @@ def get_bbands(symbol):
         return None
 
 
-# ---------- Signal Decision ----------
-
+# ---------- SIGNAL DECISION ----------
 def decide_signal(price, sma, macd, rsi, bb, ema_slope):
     if None in (price, sma, rsi, bb):
         return "INSUFFICIENT_DATA", 0, []
@@ -139,13 +140,11 @@ def decide_signal(price, sma, macd, rsi, bb, ema_slope):
     upper, mid, lower = bb
     score, reasons = 0, []
 
-    # RSI influence
     if rsi < 30: score += 2; reasons.append("RSI oversold +2")
     elif rsi < 40: score += 1; reasons.append("RSI low +1")
     elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
     elif rsi > 60: score -= 1; reasons.append("RSI high -1")
 
-    # MACD or EMA fallback
     if macd:
         macd_val, macd_sig = macd
         if macd_val > macd_sig: score += 1; reasons.append("MACD bullish +1")
@@ -154,15 +153,12 @@ def decide_signal(price, sma, macd, rsi, bb, ema_slope):
         if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
         elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
 
-    # SMA trend
     if price > sma: score += 1; reasons.append("Price above SMA +1")
     else: score -= 1; reasons.append("Price below SMA -1")
 
-    # Bollinger Band position
     if price >= upper: score -= 1; reasons.append("Near upper band -1")
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
-    # Final classification
     if score >= 3: signal = "STRONG BUY"
     elif score == 2: signal = "WEAK BUY"
     elif score == -2: signal = "WEAK SELL"
@@ -172,8 +168,7 @@ def decide_signal(price, sma, macd, rsi, bb, ema_slope):
     return signal, score, reasons
 
 
-# ---------- Market Check ----------
-
+# ---------- MARKET CHECK ----------
 def market_open_now():
     now = datetime.now(UK_TZ)
     if now.weekday() >= 5:
@@ -184,8 +179,7 @@ def market_open_now():
     return True
 
 
-# ---------- Main ----------
-
+# ---------- MAIN BOT LOOP ----------
 def process_stock(symbol):
     ts = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -220,7 +214,7 @@ def main_loop():
                 process_stock(symbol)
                 if i < len(STOCKS) - 1:
                     print("Sleeping 4 minutes before next stock...")
-                    time.sleep(4 * 60)  # 4-min gap between stocks
+                    time.sleep(4 * 60)
             print("Cycle complete. Waiting 20 minutes before next round.\n")
             time.sleep(20 * 60)
         else:
@@ -231,5 +225,3 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
-
-
