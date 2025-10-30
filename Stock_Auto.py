@@ -22,9 +22,6 @@ def keep_alive():
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
-# Your existing bot code below
-run_stock_bot()  # for example
-
 # ========== CONFIG ==========
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -234,4 +231,5 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
