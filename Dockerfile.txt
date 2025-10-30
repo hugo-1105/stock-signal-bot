@@ -1,18 +1,10 @@
-# Use stable Python version compatible with all libraries
 FROM python:3.12-slim
 
-# Set working directory
 WORKDIR /app
-
-# Copy project files
 COPY . .
 
-# Install dependencies
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port (for Render logs)
 EXPOSE 8080
-
-# Start the bot
 CMD ["python", "Stock_Auto.py"]
