@@ -8,7 +8,7 @@ import os
 
 # --- CONFIGURATION ---
 # ---------------- CONFIG ---------------- #
-API_KEY = os.getenv("TWELVEDATA_KEY")
+API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -158,4 +158,5 @@ def home():
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)
+
 
