@@ -176,7 +176,7 @@ def process_stock(symbol):
 def main_loop():
     # Inside main_loop()
 
-    print("🚀 Multi-Stock Signal Bot started — running every 12 min cycle.")
+    print("🚀 Multi-Stock Signal Bot started — running every 15 min cycle.")
 
     while True:
         if market_open_now():
@@ -187,7 +187,7 @@ def main_loop():
                     print("Sleeping 2 minutes before next stock...")
                     time.sleep(2 * 60)  # 2-min gap between each stock
             print("Cycle complete. Waiting 4 minutes before next round.\n")
-            time.sleep(7 * 60)  # Remaining part of 12-min total cycle
+            time.sleep(7 * 60)  # Remaining part of 15-min total cycle
         else:
             now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] Market closed — sleeping 10 min.")
@@ -197,6 +197,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
