@@ -2,161 +2,131 @@ import time
 import requests
 import datetime
 import pytz
-from flask import Flask
-import threading
+import gspread
 import os
+from oauth2client.service_account import ServiceAccountCredentials
 
-# --- CONFIGURATION ---
-# ---------------- CONFIG ---------------- #
+# === CONFIG ===
+STOCKS = ["NVDA", "TSLA", "AAPL", "MSFT"]  # top 4 only
 API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+SHEET_NAME = "Stock_Auto"
 
-STOCKS = ["AAPL", "MSFT", "NVDA", "GOOGL"]
-INTERVAL = "1min"
-SMA_PERIOD = 20
-EMA_PERIOD = 10
-RSI_PERIOD = 14
-BBANDS_PERIOD = 20
-BBANDS_STDDEV = 2
+# Twelve Data free-tier limits
+REQUEST_LIMIT = 8  # requests per minute
+WAIT_INTERVAL = 60 / (REQUEST_LIMIT / len(STOCKS))  # pacing
 
-LOOP_INTERVAL = 10 * 60  # 10 minutes between each full round
-MARKET_OPEN_UK = datetime.time(14, 30)
-MARKET_CLOSE_UK = datetime.time(21, 0)
+# Google Sheets setup
+scope = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME)
 
-# --- HELPER FUNCTIONS ---
-def td_request(endpoint, params):
-    base = f"https://api.twelvedata.com/{endpoint}"
-    params["apikey"] = API_KEY
+# === HELPERS ===
+def send_telegram(msg: str):
     try:
-        res = requests.get(base, params=params, timeout=10)
-        res.raise_for_status()
-        return res.json()
-    except Exception:
-        return {}
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    except Exception as e:
+        print(f"[!] Telegram error: {e}")
 
-def send_telegram(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+def fetch_indicator(symbol, indicator, interval="1h", time_period=14):
+    url = f"https://api.twelvedata.com/{indicator}?symbol={symbol}&interval={interval}&apikey={TWELVE_API_KEY}"
+    if indicator in ["sma", "rsi"]:
+        url += f"&time_period={time_period}"
+    elif indicator == "bollinger_bands":
+        url += f"&time_period={time_period}&stddev=2"
     try:
-        requests.post(url, data={"chat_id": CHAT_ID, "text": message})
-    except Exception:
-        pass
-
-# --- INDICATORS ---
-def get_price(symbol):
-    j = td_request("price", {"symbol": symbol})
-    try:
-        return float(j.get("price"))
-    except:
+        r = requests.get(url)
+        data = r.json()
+        if "values" in data:
+            return data["values"][0]
+        return None
+    except Exception as e:
+        print(f"[!] Fetch error for {symbol}-{indicator}: {e}")
         return None
 
-def get_sma(symbol):
-    j = td_request("sma", {"symbol": symbol, "interval": INTERVAL, "time_period": SMA_PERIOD})
+def fetch_price(symbol):
+    url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_API_KEY}"
     try:
-        return float(j["values"][0]["sma"])
-    except:
+        r = requests.get(url)
+        return float(r.json().get("price"))
+    except Exception as e:
+        print(f"[!] Price fetch error {symbol}: {e}")
         return None
 
-def get_ema_slope(symbol):
-    j = td_request("ema", {"symbol": symbol, "interval": INTERVAL, "time_period": EMA_PERIOD, "outputsize": 30})
+def log_to_sheet(symbol, message):
     try:
-        vals = [float(v["ema"]) for v in j["values"]]
-        return vals[0] - vals[-1] if len(vals) >= 2 else 0
-    except:
-        return 0
+        ws = sheet.worksheet(symbol)
+    except gspread.WorksheetNotFound:
+        ws = sheet.add_worksheet(title=symbol, rows=1000, cols=5)
+    ws.append_row([datetime.datetime.now().isoformat(), message])
 
-def get_rsi(symbol):
-    j = td_request("rsi", {"symbol": symbol, "interval": INTERVAL, "time_period": RSI_PERIOD})
-    try:
-        return float(j["values"][0]["rsi"])
-    except:
-        return None
+# === SIGNAL GENERATION ===
+def get_signal(symbol):
+    price = fetch_price(symbol)
+    if not price:
+        return None, None
 
-def get_bbands(symbol):
-    j = td_request("bbands", {
-        "symbol": symbol, "interval": INTERVAL,
-        "time_period": BBANDS_PERIOD, "stddev": BBANDS_STDDEV
-    })
-    try:
-        v = j["values"][0]
-        return float(v["upper_band"]), float(v["middle_band"]), float(v["lower_band"])
-    except:
-        return None
+    sma = fetch_indicator(symbol, "sma")
+    rsi = fetch_indicator(symbol, "rsi")
+    macd = fetch_indicator(symbol, "macd")
+    bb = fetch_indicator(symbol, "bollinger_bands")
 
-# --- SIGNAL DECISION ---
-def decide_signal(price, sma, rsi, bb, ema_slope):
-    if None in (price, sma, rsi, bb):
-        return "INSUFFICIENT_DATA", 0, []
+    if not all([sma, rsi, macd, bb]):
+        return None, None
 
-    upper, mid, lower = bb
-    score, reasons = 0, []
+    sma_val = float(sma["sma"])
+    rsi_val = float(rsi["rsi"])
+    macd_val = float(macd["macd"])
+    macd_signal = float(macd["macd_signal"])
+    bb_upper = float(bb["upper_band"])
+    bb_lower = float(bb["lower_band"])
 
-    if rsi < 30: score += 2; reasons.append("RSI oversold +2")
-    elif rsi < 40: score += 1; reasons.append("RSI low +1")
-    elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
-    elif rsi > 60: score -= 1; reasons.append("RSI high -1")
+    signal = "HOLD"
 
-    if ema_slope > 0: score += 1; reasons.append("EMA up +1")
-    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1")
+    # === DECISION LOGIC ===
+    if (price > sma_val) and (macd_val > macd_signal) and (rsi_val < 70) and (price < bb_upper):
+        signal = "STRONG BUY"
+    elif (price > sma_val) and (rsi_val < 60):
+        signal = "WEAK BUY"
+    elif (price < sma_val) and (macd_val < macd_signal) and (rsi_val > 30) and (price > bb_lower):
+        signal = "STRONG SELL"
+    elif (price < sma_val) and (rsi_val > 40):
+        signal = "WEAK SELL"
 
-    if price > sma: score += 1; reasons.append("Price above SMA +1")
-    else: score -= 1; reasons.append("Price below SMA -1")
+    message = f"{symbol}: {signal} @ ${price:.2f} | RSI={rsi_val:.1f} SMA={sma_val:.2f}"
+    return signal, message
 
-    if price >= upper: score -= 1; reasons.append("Near upper band -1")
-    elif price <= lower: score += 1; reasons.append("Near lower band +1")
-
-    if score >= 3: signal = "STRONG BUY"
-    elif score == 2: signal = "WEAK BUY"
-    elif score == -2: signal = "WEAK SELL"
-    elif score <= -3: signal = "STRONG SELL"
-    else: signal = "HOLD"
-
-    return signal, score, reasons
-
-# --- MARKET HOURS CHECK ---
+# === MARKET HOURS ===
 def is_market_open():
-    now = datetime.datetime.now(pytz.timezone("Europe/London")).time()
-    return MARKET_OPEN_UK <= now <= MARKET_CLOSE_UK
+    uk_time = datetime.datetime.now(pytz.timezone("Europe/London"))
+    if uk_time.weekday() >= 5:
+        return False
+    return 14 <= uk_time.hour < 21  # 14:00–21:00 UK time
 
-# --- MAIN LOOP ---
+# === MAIN LOOP ===
 def run_bot():
+    print("Stock Signal Bot started (Render Background Service)")
     while True:
-        if not is_market_open():
-            print("Market closed. Sleeping for 10 minutes.")
+        if is_market_open():
+            print("Market open — checking signals...")
+            actionable_msgs = []
+            for symbol in STOCKS:
+                signal, message = get_signal(symbol)
+                if not signal:
+                    continue
+                log_to_sheet(symbol, message)
+                if "BUY" in signal or "SELL" in signal:
+                    actionable_msgs.append(message)
+                time.sleep(WAIT_INTERVAL)
+            if actionable_msgs:
+                send_telegram("📊 Stock Alerts:\n" + "\n".join(actionable_msgs))
+        else:
+            print("Market closed — sleeping 10 minutes.")
             time.sleep(600)
-            continue
-
-        print(f"Market open — checking stocks at {datetime.datetime.now()}")
-        for symbol in STOCKS:
-            price = get_price(symbol)
-            sma = get_sma(symbol)
-            rsi = get_rsi(symbol)
-            bb = get_bbands(symbol)
-            ema_slope = get_ema_slope(symbol)
-
-            signal, score, reasons = decide_signal(price, sma, rsi, bb, ema_slope)
-
-            if signal != "HOLD":
-                msg = f"{symbol} — {signal} (Score {score})\nReasons: " + ", ".join(reasons)
-                send_telegram(msg)
-                print(f"Sent alert: {msg}")
-            else:
-                print(f"{symbol} HOLD, skipped alert.")
-
-            time.sleep(5)
-
-        print(f"Cycle complete, sleeping {LOOP_INTERVAL/60} min.\n")
-        time.sleep(LOOP_INTERVAL)
-
-# --- FLASK KEEP-ALIVE (Render requirement) ---
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "Stock Signal Bot is running!"
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=8080)
-
-
+    run_bot()
