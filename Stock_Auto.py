@@ -22,7 +22,9 @@ INTERVAL = "15min"
 # Indicator settings
 SMA_PERIOD = 20
 RSI_PERIOD = 14
-MACD_SHORT, MACD_LONG, MACD_SIGNAL = 12, 26, 9
+MACD_SHORT = 12
+MACD_LONG = 26
+MACD_SIGNAL = 9
 EMA_PERIOD = 20
 BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
 
@@ -220,6 +222,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
