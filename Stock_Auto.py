@@ -4,6 +4,7 @@ import datetime
 import pytz
 from flask import Flask
 import threading
+import os
 
 # --- CONFIGURATION ---
 # ---------------- CONFIG ---------------- #
@@ -157,3 +158,4 @@ def home():
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()
     app.run(host="0.0.0.0", port=8080)
+
