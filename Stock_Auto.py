@@ -1,11 +1,3 @@
-"""
-US Multi-Stock Signal Bot — Twelve Data + Telegram
-- 5 stocks, checked every 20 min (offset to respect rate limits)
-- Uses Price + SMA + RSI + Bollinger Bands + MACD (fallback EMA slope)
-- Telegram alert only if NOT HOLD
-- Runs only during US market hours (14:30–21:00 UK)
-"""
-
 import time
 import requests
 from datetime import datetime
@@ -13,7 +5,7 @@ import pytz
 import os
 
 # === CONFIG ===
-STOCKS = ["NVDA", "TSLA", "AAPL", "MSFT"]  # top 4 only
+STOCKS = ["GOOGL", "AMZN", "AAPL", "NVDA"]  # top 4 only
 TWELVE_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -26,7 +18,8 @@ MACD_SHORT = 12
 MACD_LONG = 26
 MACD_SIGNAL = 9
 EMA_PERIOD = 20
-BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
+BBANDS_PERIOD = 20
+BBANDS_STDDEV = 2
 
 
 # Market hours (UK)
@@ -202,7 +195,9 @@ def process_stock(symbol):
 
 
 def main_loop():
-    print("🚀 Multi-Stock Signal Bot started — running every 20 min (staggered).")
+    # Inside main_loop()
+
+    print("🚀 Multi-Stock Signal Bot started — running every 12 min cycle.")
 
     while True:
         if market_open_now():
@@ -210,18 +205,20 @@ def main_loop():
                 print(f"\n=== Checking {symbol} ===")
                 process_stock(symbol)
                 if i < len(STOCKS) - 1:
-                    print("Sleeping 4 minutes before next stock...")
-                    time.sleep(4 * 60)  # 4-min gap between stocks
-            print("Cycle complete. Waiting 20 minutes before next round.\n")
-            time.sleep(20 * 60)
+                    print("Sleeping 2 minutes before next stock...")
+                    time.sleep(2 * 60)  # 2-min gap between each stock
+            print("Cycle complete. Waiting 4 minutes before next round.\n")
+            time.sleep(4 * 60)  # Remaining part of 12-min total cycle
         else:
             now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] Market closed — sleeping 10 min.")
             time.sleep(600)
 
 
+
 if __name__ == "__main__":
     main_loop()
+
 
 
 
