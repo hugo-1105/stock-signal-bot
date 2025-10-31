@@ -14,9 +14,6 @@ INTERVAL = "15min"
 # Indicator settings
 SMA_PERIOD = 20
 RSI_PERIOD = 14
-MACD_SHORT = 12
-MACD_LONG = 26
-MACD_SIGNAL = 9
 EMA_PERIOD = 20
 BBANDS_PERIOD = 20
 BBANDS_STDDEV = 2
@@ -71,18 +68,6 @@ def get_sma(symbol):
         return None
 
 
-def get_macd(symbol):
-    j = td_request("macd", {
-        "symbol": symbol, "interval": INTERVAL,
-        "short_period": MACD_SHORT, "long_period": MACD_LONG, "signal_period": MACD_SIGNAL
-    })
-    try:
-        v = j["values"][0]
-        return float(v["macd"]), float(v["signal"])
-    except:
-        return None
-
-
 def get_ema_slope(symbol):
     j = td_request("ema", {"symbol": symbol, "interval": INTERVAL, "time_period": EMA_PERIOD, "outputsize": 30})
     try:
@@ -116,7 +101,7 @@ def get_bbands(symbol):
 
 # ---------- Signal Decision ----------
 
-def decide_signal(price, sma, macd, rsi, bb, ema_slope):
+def decide_signal(price, sma, rsi, bb, ema_slope):
     if None in (price, sma, rsi, bb):
         return "INSUFFICIENT_DATA", 0, []
 
@@ -130,13 +115,8 @@ def decide_signal(price, sma, macd, rsi, bb, ema_slope):
     elif rsi > 60: score -= 1; reasons.append("RSI high -1")
 
     # MACD or EMA fallback
-    if macd:
-        macd_val, macd_sig = macd
-        if macd_val > macd_sig: score += 1; reasons.append("MACD bullish +1")
-        else: score -= 1; reasons.append("MACD bearish -1")
-    else:
-        if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
-        elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
+    if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
+    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
 
     # SMA trend
     if price > sma: score += 1; reasons.append("Price above SMA +1")
@@ -147,10 +127,10 @@ def decide_signal(price, sma, macd, rsi, bb, ema_slope):
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
     # Final classification
-    if score >= 3: signal = "STRONG BUY"
-    elif score == 2: signal = "WEAK BUY"
-    elif score == -2: signal = "WEAK SELL"
-    elif score <= -3: signal = "STRONG SELL"
+    if score >= 3: signal = "STRONG BUY ❇️❇️"
+    elif score == 2: signal = "WEAK BUY ❇️"
+    elif score == -2: signal = "WEAK SELL 🈹"
+    elif score <= -3: signal = "STRONG SELL 🈹🈹"
     else: signal = "HOLD"
 
     return signal, score, reasons
@@ -175,12 +155,11 @@ def process_stock(symbol):
 
     price = get_price(symbol)
     sma = get_sma(symbol)
-    macd = get_macd(symbol)
-    ema_slope = get_ema_slope(symbol) if macd is None else 0
+    ema_slope = get_ema_slope(symbol)
     rsi = get_rsi(symbol)
     bb = get_bbands(symbol)
 
-    signal, score, reasons = decide_signal(price, sma, macd, rsi, bb, ema_slope)
+    signal, score, reasons = decide_signal(price, sma, rsi, bb, ema_slope)
 
     print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
 
@@ -189,7 +168,7 @@ def process_stock(symbol):
             f"📊 {symbol} ({ts} UK)\n"
             f"Decision: {signal}\nScore: {score}\n"
             f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
-            f"MACD: {macd}\nEMA slope: {ema_slope:.4f}\nBB: {bb}"
+            f"EMA slope: {ema_slope:.4f}\nBB: {bb}"
         )
         send_telegram(msg)
 
@@ -208,7 +187,7 @@ def main_loop():
                     print("Sleeping 2 minutes before next stock...")
                     time.sleep(2 * 60)  # 2-min gap between each stock
             print("Cycle complete. Waiting 4 minutes before next round.\n")
-            time.sleep(4 * 60)  # Remaining part of 12-min total cycle
+            time.sleep(7 * 60)  # Remaining part of 12-min total cycle
         else:
             now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] Market closed — sleeping 10 min.")
@@ -218,6 +197,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
