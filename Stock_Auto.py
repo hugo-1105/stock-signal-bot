@@ -37,7 +37,7 @@ MARKET_CLOSE = (21, 0)
 def send_telegram(msg: str):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+        payload = {"chat_id": CHAT_ID, "text": msg}
         requests.post(url, data=payload, timeout=10)
     except Exception as e:
         print(f"⚠️ Telegram error: {e}")
@@ -220,6 +220,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
