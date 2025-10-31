@@ -1,7 +1,28 @@
+# ===============================
+# Stock Signal Bot — Dockerfile
+# Background Worker for Render
+# ===============================
+
+# Use a lightweight base image with Python 3.11
 FROM python:3.12-slim
+
+# Set working directory
 WORKDIR /app
-COPY . .
-RUN pip install --upgrade pip
+
+# Copy requirements first (to leverage Docker caching)
+COPY requirements.txt .
+
+# Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
-EXPOSE 8080
+
+# Copy all source files (including creds.json)
+COPY . .
+
+# Set timezone (UK)
+ENV TZ=Europe/London
+
+# Ensure Python prints instantly (no buffering)
+ENV PYTHONUNBUFFERED=1
+
+# Command to run the bot continuously
 CMD ["python", "Stock_Auto.py"]
