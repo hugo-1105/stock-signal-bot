@@ -14,7 +14,7 @@ import os
 
 # === CONFIG ===
 STOCKS = ["NVDA", "TSLA", "AAPL", "MSFT"]  # top 4 only
-API_KEY = os.getenv("TWELVE_API_KEY")
+TWELVE_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SHEET_NAME = "Stock_Auto"
@@ -220,4 +220,5 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
