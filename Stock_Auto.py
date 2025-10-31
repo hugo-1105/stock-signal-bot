@@ -20,7 +20,7 @@ WAIT_INTERVAL = 60 / (REQUEST_LIMIT / len(STOCKS))  # pacing
 # Google Sheets setup
 scope = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
 sheet = client.open(SHEET_NAME)
 
@@ -130,3 +130,4 @@ def run_bot():
 
 if __name__ == "__main__":
     run_bot()
+
