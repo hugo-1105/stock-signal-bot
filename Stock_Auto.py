@@ -1,10 +1,16 @@
+"""
+US Multi-Stock Signal Bot — Twelve Data + Telegram
+- 5 stocks, checked every 20 min (offset to respect rate limits)
+- Uses Price + SMA + RSI + Bollinger Bands + MACD (fallback EMA slope)
+- Telegram alert only if NOT HOLD
+- Runs only during US market hours (14:30–21:00 UK)
+"""
+
 import time
 import requests
-import datetime
+from datetime import datetime
 import pytz
-import gspread
 import os
-from oauth2client.service_account import ServiceAccountCredentials
 
 # === CONFIG ===
 STOCKS = ["NVDA", "TSLA", "AAPL", "MSFT"]  # top 4 only
@@ -13,121 +19,204 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 SHEET_NAME = "Stock_Auto"
 
-# Twelve Data free-tier limits
-REQUEST_LIMIT = 8  # requests per minute
-WAIT_INTERVAL = 60 / (REQUEST_LIMIT / len(STOCKS))  # pacing
+# Indicator settings
+SMA_PERIOD = 20
+RSI_PERIOD = 14
+MACD_SHORT, MACD_LONG, MACD_SIGNAL = 12, 26, 9
+EMA_PERIOD = 20
+BBANDS_PERIOD, BBANDS_STDDEV = 20, 2
 
-# Google Sheets setup
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-client = gspread.authorize(creds)
-sheet = client.open(SHEET_NAME)
 
-# === HELPERS ===
+# Market hours (UK)
+UK_TZ = pytz.timezone("Europe/London")
+MARKET_OPEN = (14, 30)
+MARKET_CLOSE = (21, 0)
+# ============================
+
+
 def send_telegram(msg: str):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg}
+        requests.post(url, data=payload, timeout=10)
     except Exception as e:
-        print(f"[!] Telegram error: {e}")
+        print(f"⚠️ Telegram error: {e}")
 
-def fetch_indicator(symbol, indicator, interval="1h", time_period=14):
-    url = f"https://api.twelvedata.com/{indicator}?symbol={symbol}&interval={interval}&apikey={TWELVE_API_KEY}"
-    if indicator in ["sma", "rsi"]:
-        url += f"&time_period={time_period}"
-    elif indicator == "bollinger_bands":
-        url += f"&time_period={time_period}&stddev=2"
-    try:
-        r = requests.get(url)
-        data = r.json()
-        if "values" in data:
-            return data["values"][0]
-        return None
-    except Exception as e:
-        print(f"[!] Fetch error for {symbol}-{indicator}: {e}")
-        return None
 
-def fetch_price(symbol):
-    url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_API_KEY}"
+def td_request(endpoint, params):
+    base = "https://api.twelvedata.com"
+    params["apikey"] = TWELVE_API_KEY
     try:
-        r = requests.get(url)
-        return float(r.json().get("price"))
+        r = requests.get(f"{base}/{endpoint}", params=params, timeout=10)
+        j = r.json()
+        if "status" in j and j["status"] == "error":
+            print(f"⚠️ Error {endpoint}: {j.get('message')}")
+            return None
+        return j
     except Exception as e:
-        print(f"[!] Price fetch error {symbol}: {e}")
+        print(f"⚠️ Request exception for {endpoint}: {e}")
         return None
 
-def log_to_sheet(symbol, message):
+
+# ---------- Indicators ----------
+
+def get_price(symbol):
+    j = td_request("price", {"symbol": symbol})
     try:
-        ws = sheet.worksheet(symbol)
-    except gspread.WorksheetNotFound:
-        ws = sheet.add_worksheet(title=symbol, rows=1000, cols=5)
-    ws.append_row([datetime.datetime.now().isoformat(), message])
+        return float(j.get("price"))
+    except:
+        return None
 
-# === SIGNAL GENERATION ===
-def get_signal(symbol):
-    price = fetch_price(symbol)
-    if not price:
-        return None, None
 
-    sma = fetch_indicator(symbol, "sma")
-    rsi = fetch_indicator(symbol, "rsi")
-    macd = fetch_indicator(symbol, "macd")
-    bb = fetch_indicator(symbol, "bollinger_bands")
+def get_sma(symbol):
+    j = td_request("sma", {"symbol": symbol, "interval": INTERVAL, "time_period": SMA_PERIOD})
+    try:
+        return float(j["values"][0]["sma"])
+    except:
+        return None
 
-    if not all([sma, rsi, macd, bb]):
-        return None, None
 
-    sma_val = float(sma["sma"])
-    rsi_val = float(rsi["rsi"])
-    macd_val = float(macd["macd"])
-    macd_signal = float(macd["macd_signal"])
-    bb_upper = float(bb["upper_band"])
-    bb_lower = float(bb["lower_band"])
+def get_macd(symbol):
+    j = td_request("macd", {
+        "symbol": symbol, "interval": INTERVAL,
+        "short_period": MACD_SHORT, "long_period": MACD_LONG, "signal_period": MACD_SIGNAL
+    })
+    try:
+        v = j["values"][0]
+        return float(v["macd"]), float(v["signal"])
+    except:
+        return None
 
-    signal = "HOLD"
 
-    # === DECISION LOGIC ===
-    if (price > sma_val) and (macd_val > macd_signal) and (rsi_val < 70) and (price < bb_upper):
-        signal = "STRONG BUY"
-    elif (price > sma_val) and (rsi_val < 60):
-        signal = "WEAK BUY"
-    elif (price < sma_val) and (macd_val < macd_signal) and (rsi_val > 30) and (price > bb_lower):
-        signal = "STRONG SELL"
-    elif (price < sma_val) and (rsi_val > 40):
-        signal = "WEAK SELL"
+def get_ema_slope(symbol):
+    j = td_request("ema", {"symbol": symbol, "interval": INTERVAL, "time_period": EMA_PERIOD, "outputsize": 30})
+    try:
+        vals = [float(v["ema"]) for v in j["values"]]
+        if len(vals) < 2:
+            return 0
+        return vals[0] - vals[-1]
+    except:
+        return 0
 
-    message = f"{symbol}: {signal} @ ${price:.2f} | RSI={rsi_val:.1f} SMA={sma_val:.2f}"
-    return signal, message
 
-# === MARKET HOURS ===
-def is_market_open():
-    uk_time = datetime.datetime.now(pytz.timezone("Europe/London"))
-    if uk_time.weekday() >= 5:
+def get_rsi(symbol):
+    j = td_request("rsi", {"symbol": symbol, "interval": INTERVAL, "time_period": RSI_PERIOD})
+    try:
+        return float(j["values"][0]["rsi"])
+    except:
+        return None
+
+
+def get_bbands(symbol):
+    j = td_request("bbands", {
+        "symbol": symbol, "interval": INTERVAL,
+        "time_period": BBANDS_PERIOD, "stddev": BBANDS_STDDEV
+    })
+    try:
+        v = j["values"][0]
+        return float(v["upper_band"]), float(v["middle_band"]), float(v["lower_band"])
+    except:
+        return None
+
+
+# ---------- Signal Decision ----------
+
+def decide_signal(price, sma, macd, rsi, bb, ema_slope):
+    if None in (price, sma, rsi, bb):
+        return "INSUFFICIENT_DATA", 0, []
+
+    upper, mid, lower = bb
+    score, reasons = 0, []
+
+    # RSI influence
+    if rsi < 30: score += 2; reasons.append("RSI oversold +2")
+    elif rsi < 40: score += 1; reasons.append("RSI low +1")
+    elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
+    elif rsi > 60: score -= 1; reasons.append("RSI high -1")
+
+    # MACD or EMA fallback
+    if macd:
+        macd_val, macd_sig = macd
+        if macd_val > macd_sig: score += 1; reasons.append("MACD bullish +1")
+        else: score -= 1; reasons.append("MACD bearish -1")
+    else:
+        if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
+        elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
+
+    # SMA trend
+    if price > sma: score += 1; reasons.append("Price above SMA +1")
+    else: score -= 1; reasons.append("Price below SMA -1")
+
+    # Bollinger Band position
+    if price >= upper: score -= 1; reasons.append("Near upper band -1")
+    elif price <= lower: score += 1; reasons.append("Near lower band +1")
+
+    # Final classification
+    if score >= 3: signal = "STRONG BUY"
+    elif score == 2: signal = "WEAK BUY"
+    elif score == -2: signal = "WEAK SELL"
+    elif score <= -3: signal = "STRONG SELL"
+    else: signal = "HOLD"
+
+    return signal, score, reasons
+
+
+# ---------- Market Check ----------
+
+def market_open_now():
+    now = datetime.now(UK_TZ)
+    if now.weekday() >= 5:
         return False
-    return 14 <= uk_time.hour < 21  # 14:00–21:00 UK time
+    h, m = now.hour, now.minute
+    if (h, m) < MARKET_OPEN or (h, m) >= MARKET_CLOSE:
+        return False
+    return True
 
-# === MAIN LOOP ===
-def run_bot():
-    print("Stock Signal Bot started (Render Background Service)")
+
+# ---------- Main ----------
+
+def process_stock(symbol):
+    ts = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+    price = get_price(symbol)
+    sma = get_sma(symbol)
+    macd = get_macd(symbol)
+    ema_slope = get_ema_slope(symbol) if macd is None else 0
+    rsi = get_rsi(symbol)
+    bb = get_bbands(symbol)
+
+    signal, score, reasons = decide_signal(price, sma, macd, rsi, bb, ema_slope)
+
+    print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
+
+    if signal not in ("HOLD", "INSUFFICIENT_DATA"):
+        msg = (
+            f"📊 {symbol} ({ts} UK)\n"
+            f"Decision: {signal}\nScore: {score}\n"
+            f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
+            f"MACD: {macd}\nEMA slope: {ema_slope:.4f}\nBB: {bb}"
+        )
+        send_telegram(msg)
+
+
+def main_loop():
+    print("🚀 Multi-Stock Signal Bot started — running every 20 min (staggered).")
+
     while True:
-        if is_market_open():
-            print("Market open — checking signals...")
-            actionable_msgs = []
-            for symbol in STOCKS:
-                signal, message = get_signal(symbol)
-                if not signal:
-                    continue
-                log_to_sheet(symbol, message)
-                if "BUY" in signal or "SELL" in signal:
-                    actionable_msgs.append(message)
-                time.sleep(WAIT_INTERVAL)
-            if actionable_msgs:
-                send_telegram("📊 Stock Alerts:\n" + "\n".join(actionable_msgs))
+        if market_open_now():
+            for i, symbol in enumerate(STOCKS):
+                print(f"\n=== Checking {symbol} ===")
+                process_stock(symbol)
+                if i < len(STOCKS) - 1:
+                    print("Sleeping 4 minutes before next stock...")
+                    time.sleep(4 * 60)  # 4-min gap between stocks
+            print("Cycle complete. Waiting 20 minutes before next round.\n")
+            time.sleep(20 * 60)
         else:
-            print("Market closed — sleeping 10 minutes.")
+            now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{now}] Market closed — sleeping 10 min.")
             time.sleep(600)
 
-if __name__ == "__main__":
-    run_bot()
 
+if __name__ == "__main__":
+    main_loop()
