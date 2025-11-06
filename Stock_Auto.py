@@ -5,7 +5,7 @@ import pytz
 import os
 
 # === CONFIG ===
-STOCKS = ["JBL", "GOOGL", "AAPL", "SMCI"]  # top 4 only
+STOCKS = ["NVDA", "JBL", "GOOGL", "AAPL"]  # top 4 only
 TWELVE_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -115,8 +115,8 @@ def decide_signal(price, sma, rsi, bb, ema_slope):
     elif rsi > 60: score -= 1; reasons.append("RSI high -1")
 
     # MACD or EMA fallback
-    if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
-    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
+    if ema_slope > 0: score += 1; reasons.append("EMA up +1")
+    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1")
 
     # SMA trend
     if price > sma: score += 1; reasons.append("Price above SMA +1")
@@ -197,6 +197,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
