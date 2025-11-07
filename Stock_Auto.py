@@ -68,23 +68,15 @@ def get_sma(symbol):
         return None
 
 
-def get_macd(symbol):
-    j = td_request("macd", {
-        "symbol": symbol,
-        "interval": INTERVAL,
-        "short_period": 12,
-        "long_period": 26,
-        "signal_period": 9
-    })
+def get_ema_slope(symbol):
+    j = td_request("ema", {"symbol": symbol, "interval": INTERVAL, "time_period": EMA_PERIOD, "outputsize": 30})
     try:
-        v = j["values"][0]
-        macd = float(v["macd"])
-        macd_signal = float(v["macd_signal"])
-        macd_hist = float(v["macd_hist"])
-        return macd, macd_signal, macd_hist
+        vals = [float(v["ema"]) for v in j["values"]]
+        if len(vals) < 2:
+            return 0
+        return vals[0] - vals[-1]
     except:
-        return None
-
+        return 0
 
 
 def get_rsi(symbol):
@@ -122,15 +114,9 @@ def decide_signal(price, sma, rsi, bb, ema_slope):
     elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
     elif rsi > 60: score -= 1; reasons.append("RSI high -1")
 
-    # MACD momentum
-    if macd_hist is not None:
-        if macd_hist > 0:
-            score += 1
-            reasons.append("MACD bullish +1")
-        elif macd_hist < 0:
-            score -= 1
-            reasons.append("MACD bearish -1")
-
+    # MACD or EMA fallback
+    if ema_slope > 0: score += 1; reasons.append("EMA up +1")
+    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1")
 
     # SMA trend
     if price > sma: score += 1; reasons.append("Price above SMA +1")
@@ -169,12 +155,11 @@ def process_stock(symbol):
 
     price = get_price(symbol)
     sma = get_sma(symbol)
-    macd_data = get_macd(symbol)
-    macd_hist = macd_data[2] if macd_data else None
+    ema_slope = get_ema_slope(symbol)
     rsi = get_rsi(symbol)
     bb = get_bbands(symbol)
 
-    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd_hist)
+    signal, score, reasons = decide_signal(price, sma, rsi, bb, ema_slope)
 
     print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
 
@@ -183,7 +168,7 @@ def process_stock(symbol):
             f"📊 {symbol} ({ts} UK)\n"
             f"Decision: {signal}\nScore: {score}\n"
             f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
-            f"MACD hist: {macd_hist}\nBB: {bb}"
+            f"EMA slope: {ema_slope:.4f}\nBB: {bb}"
         )
         send_telegram(msg)
 
@@ -212,18 +197,3 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
