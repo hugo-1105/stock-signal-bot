@@ -5,7 +5,7 @@ import pytz
 import os
 
 # === CONFIG ===
-STOCKS = ["NVDA", "JBL", "GOOGL", "AAPL"]  # top 4 only
+STOCKS = ["V", "NVDA", "GOOGL", "AAPL"]  # top 4 only
 TWELVE_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -197,6 +197,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
