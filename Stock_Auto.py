@@ -20,7 +20,7 @@ BBANDS_STDDEV = 2
 
 # Market hours (UK)
 UK_TZ = pytz.timezone("Europe/London")
-MARKET_OPEN = (13, 30)
+MARKET_OPEN = (14, 00)
 MARKET_CLOSE = (21, 0)
 # ============================
 
@@ -152,8 +152,8 @@ def decide_signal(price, sma, rsi, bb, macd_data, ema_slope):
 
 def market_open_now():
     now = datetime.now(UK_TZ)
- #   if now.weekday() >= 5:
-  #      return False
+    if now.weekday() >= 5:
+        return False
     h, m = now.hour, now.minute
     if (h, m) < MARKET_OPEN or (h, m) >= MARKET_CLOSE:
         return False
@@ -206,3 +206,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
