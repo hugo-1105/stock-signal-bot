@@ -33,31 +33,35 @@ EMA (Exponential Moving Average) as a fallback
 ✅ Docker-based — perfect for Render background services
 
 🧩 Signal Logic Overview
-Indicator	Logic	Score Impact
-RSI	Oversold (<30) → +2, Overbought (>70) → -2	±2
-MACD Line	Above signal → +1, Below → -1	±1
-MACD Histogram	Positive → +1, Negative → -1	±1
-SMA	Price above SMA → +1, below → -1	±1
-Bollinger Bands	Near lower band → +1, upper band → -1	±1
-EMA (fallback)	Slope up → +1, slope down → -1	±1
+| Indicator           | Logic                                      | Score Impact |
+| ------------------- | ------------------------------------------ | ------------ |
+| **RSI**             | Oversold (<30) → +2, Overbought (>70) → -2 | ±2           |
+| **MACD Line**       | Above signal → +1, Below → -1              | ±1           |
+| **MACD Histogram**  | Positive → +1, Negative → -1               | ±1           |
+| **SMA**             | Price above SMA → +1, below → -1           | ±1           |
+| **Bollinger Bands** | Near lower band → +1, upper band → -1      | ±1           |
+| **EMA** (fallback)  | Slope up → +1, slope down → -1             | ±1           |
+
 🔹 Signal Classification
-Total Score	Decision
-≥ +4	STRONG BUY ❇️❇️
-+3	WEAK BUY ❇️
--3	WEAK SELL 🈹
-≤ -4	STRONG SELL 🈹🈹
-Otherwise	HOLD
+| Total Score | Decision             |
+| ----------- | -------------------- |
+| ≥ +4        | **STRONG BUY** ❇️❇️  |
+| +3          | **WEAK BUY** ❇️      |
+| -3          | **WEAK SELL** 🈹     |
+| ≤ -4        | **STRONG SELL** 🈹🈹 |
+| Otherwise   | **HOLD**             |
+
 ⚙️ Configuration
 
 Edit or set these environment variables in Render or your .env file:
 
-Variable	Description
-TWELVEDATA_API_KEY	Your Twelve Data
- API key
-TELEGRAM_TOKEN	Telegram bot token from @BotFather
+| Variable             | Description                                                         |
+| -------------------- | ------------------------------------------------------------------- |
+| `TWELVEDATA_API_KEY` | Your [Twelve Data](https://twelvedata.com/apikey) API key           |
+| `TELEGRAM_TOKEN`     | Telegram bot token from [@BotFather](https://t.me/BotFather)        |
+| `TELEGRAM_CHAT_ID`   | Your Telegram user or group chat ID                                 |
+| *(Optional)*         | Modify stock list, intervals, or thresholds in `Stock_Auto_Test.py` |
 
-TELEGRAM_CHAT_ID	Your Telegram user or group chat ID
-(Optional)	Modify stock list, intervals, or thresholds in Stock_Auto_Test.py
 🐳 Docker Setup
 Dockerfile
 FROM python:3.12-slim
