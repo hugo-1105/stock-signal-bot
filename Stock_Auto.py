@@ -5,7 +5,7 @@ import pytz
 import os
 
 # === CONFIG ===
-STOCKS = ["V", "NVDA", "GOOGL", "AAPL"]  # top 4 only
+STOCKS = ["V", "NVDA", "GOOGL", "AAPL"]  # 4 stable, profitable US stocks
 TWELVE_API_KEY = os.getenv("TWELVEDATA_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -17,16 +17,19 @@ RSI_PERIOD = 14
 EMA_PERIOD = 20
 BBANDS_PERIOD = 20
 BBANDS_STDDEV = 2
-
+MACD_SHORT = 12
+MACD_LONG = 26
+MACD_SIGNAL = 9
 
 # Market hours (UK)
 UK_TZ = pytz.timezone("Europe/London")
 MARKET_OPEN = (14, 30)
 MARKET_CLOSE = (21, 0)
-# ============================
+# =========================================
 
 
 def send_telegram(msg: str):
+    """Send Telegram notification."""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         payload = {"chat_id": CHAT_ID, "text": msg}
@@ -36,6 +39,7 @@ def send_telegram(msg: str):
 
 
 def td_request(endpoint, params):
+    """Handle Twelve Data API requests with error handling."""
     base = "https://api.twelvedata.com"
     params["apikey"] = TWELVE_API_KEY
     try:
@@ -64,6 +68,24 @@ def get_sma(symbol):
     j = td_request("sma", {"symbol": symbol, "interval": INTERVAL, "time_period": SMA_PERIOD})
     try:
         return float(j["values"][0]["sma"])
+    except:
+        return None
+
+
+def get_macd(symbol):
+    j = td_request("macd", {
+        "symbol": symbol,
+        "interval": INTERVAL,
+        "short_period": MACD_SHORT,
+        "long_period": MACD_LONG,
+        "signal_period": MACD_SIGNAL
+    })
+    try:
+        latest = j["values"][0]
+        macd = float(latest["macd"])
+        macd_signal = float(latest["macd_signal"])
+        macd_hist = float(latest["macd_hist"])
+        return macd, macd_signal, macd_hist
     except:
         return None
 
@@ -101,22 +123,30 @@ def get_bbands(symbol):
 
 # ---------- Signal Decision ----------
 
-def decide_signal(price, sma, rsi, bb, ema_slope):
+def decide_signal(price, sma, rsi, bb, macd, ema_slope):
     if None in (price, sma, rsi, bb):
         return "INSUFFICIENT_DATA", 0, []
 
     upper, mid, lower = bb
     score, reasons = 0, []
 
-    # RSI influence
+    # RSI impact
     if rsi < 30: score += 2; reasons.append("RSI oversold +2")
     elif rsi < 40: score += 1; reasons.append("RSI low +1")
     elif rsi > 70: score -= 2; reasons.append("RSI overbought -2")
     elif rsi > 60: score -= 1; reasons.append("RSI high -1")
 
-    # MACD or EMA fallback
-    if ema_slope > 0: score += 1; reasons.append("EMA up +1")
-    elif ema_slope < 0: score -= 1; reasons.append("EMA down -1")
+    # MACD logic (primary)
+    if macd:
+        macd_val, macd_sig, macd_hist = macd
+        if macd > macd_sig: score += 1; reasons.append("MACD bullish +1")
+        else: score -= 1; reasons.append("MACD bearish -1")
+        if macd_hist > 0: score += 1; reasons.append("MACD hist positive +1")
+        elif macd_hist < 0: score -= 1; reasons.append("MACD hist negative -1")
+    else:
+        # EMA fallback
+        if ema_slope > 0: score += 1; reasons.append("EMA up +1 (fallback)")
+        elif ema_slope < 0: score -= 1; reasons.append("EMA down -1 (fallback)")
 
     # SMA trend
     if price > sma: score += 1; reasons.append("Price above SMA +1")
@@ -126,7 +156,7 @@ def decide_signal(price, sma, rsi, bb, ema_slope):
     if price >= upper: score -= 1; reasons.append("Near upper band -1")
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
-    # Final classification
+    # Final signal
     if score >= 3: signal = "STRONG BUY ❇️❇️"
     elif score == 2: signal = "WEAK BUY ❇️"
     elif score == -2: signal = "WEAK SELL 🈹"
@@ -136,30 +166,29 @@ def decide_signal(price, sma, rsi, bb, ema_slope):
     return signal, score, reasons
 
 
-# ---------- Market Check ----------
+# ---------- Market Hours ----------
 
 def market_open_now():
     now = datetime.now(UK_TZ)
     if now.weekday() >= 5:
         return False
     h, m = now.hour, now.minute
-    if (h, m) < MARKET_OPEN or (h, m) >= MARKET_CLOSE:
-        return False
-    return True
+    return (h, m) >= MARKET_OPEN and (h, m) < MARKET_CLOSE
 
 
-# ---------- Main ----------
+# ---------- Processing ----------
 
 def process_stock(symbol):
     ts = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
     price = get_price(symbol)
     sma = get_sma(symbol)
-    ema_slope = get_ema_slope(symbol)
     rsi = get_rsi(symbol)
     bb = get_bbands(symbol)
+    macd = get_macd(symbol)
+    ema_slope = get_ema_slope(symbol)
 
-    signal, score, reasons = decide_signal(price, sma, rsi, bb, ema_slope)
+    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd, ema_slope)
 
     print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
 
@@ -168,14 +197,15 @@ def process_stock(symbol):
             f"📊 {symbol} ({ts} UK)\n"
             f"Decision: {signal}\nScore: {score}\n"
             f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
+            f"MACD: {macd}\n"
             f"EMA slope: {ema_slope:.4f}\nBB: {bb}"
         )
         send_telegram(msg)
 
 
-def main_loop():
-    # Inside main_loop()
+# ---------- Main Loop ----------
 
+def main_loop():
     print("🚀 Multi-Stock Signal Bot started — running every 15 min cycle.")
 
     while True:
@@ -185,14 +215,13 @@ def main_loop():
                 process_stock(symbol)
                 if i < len(STOCKS) - 1:
                     print("Sleeping 2 minutes before next stock...")
-                    time.sleep(2 * 60)  # 2-min gap between each stock
+                    time.sleep(2 * 60)  # 2-min gap to avoid rate limit
             print("Cycle complete. Waiting 4 minutes before next round.\n")
-            time.sleep(7 * 60)  # Remaining part of 15-min total cycle
+            time.sleep(7 * 60)  # Remaining time to make 15-min total
         else:
             now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] Market closed — sleeping 10 min.")
             time.sleep(600)
-
 
 
 if __name__ == "__main__":
