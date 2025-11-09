@@ -170,8 +170,8 @@ def decide_signal(price, sma, rsi, bb, macd, ema_slope):
 
 def market_open_now():
     now = datetime.now(UK_TZ)
-    if now.weekday() >= 5:
-        return False
+    #if now.weekday() >= 5:
+        #return False#
     h, m = now.hour, now.minute
     return (h, m) >= MARKET_OPEN and (h, m) < MARKET_CLOSE
 
@@ -226,4 +226,5 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
