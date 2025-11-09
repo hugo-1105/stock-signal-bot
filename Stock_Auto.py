@@ -23,7 +23,7 @@ MACD_SIGNAL = 9
 
 # Market hours (UK)
 UK_TZ = pytz.timezone("Europe/London")
-MARKET_OPEN = (14, 30)
+MARKET_OPEN = (13, 30)
 MARKET_CLOSE = (21, 0)
 # =========================================
 
@@ -226,3 +226,4 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
