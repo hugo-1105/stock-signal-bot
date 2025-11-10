@@ -129,10 +129,27 @@ def get_mfi(symbol):
 # ---------- Signal Decision ----------
 
 def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi):
-    if None in (price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi):
-        return "INSUFFICIENT_DATA", 0, []
+    # --- safer unpacking of Bollinger Bands ---
+    if bb is None or len(bb) != 3:
+        upper = mid = lower = None
+    else:
+        upper, mid, lower = bb
 
-    upper, mid, lower = bb
+    # --- validate data availability (explicit per indicator) ---
+    missing = []
+    if price is None: missing.append("price")
+    if sma is None: missing.append("sma")
+    if rsi is None: missing.append("rsi")
+    if upper is None or mid is None or lower is None: missing.append("bbands")
+    if macd is None or macd_sig is None or macd_hist is None: missing.append("macd")
+    if adx is None or plus_di is None or minus_di is None: missing.append("adx")
+    if mfi is None: missing.append("mfi")
+
+    if missing:
+        print(f"⚠️ Missing data for: {', '.join(missing)}")
+        return "INSUFFICIENT_DATA", 0, [f"Missing: {', '.join(missing)}"]
+
+    # --- scoring begins ---
     score, reasons = 0, []
 
     # RSI
@@ -153,17 +170,16 @@ def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, 
     if price >= upper: score -= 1; reasons.append("Near upper band -1")
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
-        # ADX logic
-    if adx is not None and plus_di is not None and minus_di is not None:
-        if adx > ADX_THRESHOLD:
-            if plus_di > minus_di:
-                score += 1
-                reasons.append("ADX strong bullish trend +1")
-            elif minus_di > plus_di:
-                score -= 1
-                reasons.append("ADX strong bearish trend -1")
-        else:
-            reasons.append("ADX trend weak (no score)")
+    # ADX logic
+    if adx > ADX_THRESHOLD:
+        if plus_di > minus_di:
+            score += 1
+            reasons.append("ADX strong bullish trend +1")
+        elif minus_di > plus_di:
+            score -= 1
+            reasons.append("ADX strong bearish trend -1")
+    else:
+        reasons.append("ADX trend weak (no score)")
 
     # MFI
     if mfi < 20: score += 1; reasons.append("MFI oversold +1")
@@ -177,6 +193,7 @@ def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, 
     else: signal = "HOLD"
 
     return signal, score, reasons
+
 
 
 # ---------- Market Check ----------
@@ -239,6 +256,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
