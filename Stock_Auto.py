@@ -16,9 +16,7 @@ SMA_PERIOD = 20
 RSI_PERIOD = 14
 BBANDS_PERIOD = 20
 BBANDS_STDDEV = 2
-ADX_PERIOD = 14
 MFI_PERIOD = 14
-ADX_THRESHOLD = 25  # typical value for strong trend
 
 
 # Market hours (UK)
@@ -102,33 +100,23 @@ def get_bbands(symbol):
         return None
 
 
-def get_adx(symbol):
-    j = td_request("adx", {
-        "symbol": symbol,
-        "interval": INTERVAL,
-        "time_period": ADX_PERIOD
-    })
-    try:
-        v = j["values"][0]
-        adx = float(v["adx"])
-        plus_di = float(v["+di"])
-        minus_di = float(v["-di"])
-        return adx, plus_di, minus_di
-    except:
-        return None, None, None
-
-
 def get_mfi(symbol):
     j = td_request("mfi", {"symbol": symbol, "interval": INTERVAL, "time_period": MFI_PERIOD})
     try:
         return float(j["values"][0]["mfi"])
     except:
         return None
+def get_cci(symbol):
+    j = td_request("cci", {"symbol": symbol, "interval": INTERVAL, "time_period": 20})
+    try:
+        return float(j["values"][0]["cci"])
+    except:
+        return None
 
 
 # ---------- Signal Decision ----------
 
-def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi):
+def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, cci, mfi):
     # --- safer unpacking of Bollinger Bands ---
     if bb is None or len(bb) != 3:
         upper = mid = lower = None
@@ -142,7 +130,7 @@ def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, 
     if rsi is None: missing.append("rsi")
     if upper is None or mid is None or lower is None: missing.append("bbands")
     if macd is None or macd_sig is None or macd_hist is None: missing.append("macd")
-    if adx is None or plus_di is None or minus_di is None: missing.append("adx")
+    if cci is None: missing.append("cci")
     if mfi is None: missing.append("mfi")
 
     if missing:
@@ -170,20 +158,19 @@ def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, 
     if price >= upper: score -= 1; reasons.append("Near upper band -1")
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
-    # ADX logic
-    if adx > ADX_THRESHOLD:
-        if plus_di > minus_di:
-            score += 1
-            reasons.append("ADX strong bullish trend +1")
-        elif minus_di > plus_di:
-            score -= 1
-            reasons.append("ADX strong bearish trend -1")
-    else:
-        reasons.append("ADX trend weak (no score)")
-
     # MFI
     if mfi < 20: score += 1; reasons.append("MFI oversold +1")
     elif mfi > 80: score -= 1; reasons.append("MFI overbought -1")
+
+        # CCI logic
+    if cci > 100:
+        score += 1
+        reasons.append("CCI strong positive trend +1")
+    elif cci < -100:
+        score -= 1
+        reasons.append("CCI strong negative trend -1")
+    else:
+        reasons.append("CCI neutral (no score)")
 
     # Final classification
     if score >= 4: signal = "STRONG BUY ❇️❇️"
@@ -218,20 +205,19 @@ def process_stock(symbol):
     macd, macd_sig, macd_hist = get_macd(symbol)
     rsi = get_rsi(symbol)
     bb = get_bbands(symbol)
-    adx, plus_di, minus_di = get_adx(symbol)
     mfi = get_mfi(symbol)
-
-    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi)
+    cci = get_cci(symbol)
+    
+    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, cci, mfi)
 
     print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
 
     if signal not in ("HOLD", "INSUFFICIENT_DATA"):
         msg = (
-            f"📊 {symbol} ({ts} UK)\n"
-            f"Decision: {signal}\nScore: {score}\n"
-            f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
-            f"MACD hist: {macd_hist}\nADX: {adx}\nMFI: {mfi}\nBB: {bb}"
-        )
+        f"📊 {symbol} ({ts} UK)\n"
+        f"Decision: {signal}\nScore: {score}\n"
+        f"Price: {price}\nRSI: {rsi}\nSMA: {sma}\n"
+        f"MACD hist: {macd_hist}\nCCI: {cci}\nMFI: {mfi}\nBB: {bb}")
         send_telegram(msg)
 
 
@@ -256,6 +242,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
