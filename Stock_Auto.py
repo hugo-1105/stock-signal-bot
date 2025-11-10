@@ -101,7 +101,11 @@ def get_bbands(symbol):
 
 
 def get_adx(symbol):
-    j = td_request("adx", {"symbol": symbol, "interval": INTERVAL, "time_period": 14})
+    j = td_request("adx", {
+        "symbol": symbol,
+        "interval": INTERVAL,
+        "time_period": ADX_PERIOD
+    })
     try:
         v = j["values"][0]
         adx = float(v["adx"])
@@ -109,7 +113,8 @@ def get_adx(symbol):
         minus_di = float(v["-di"])
         return adx, plus_di, minus_di
     except:
-        return None
+        return None, None, None
+
 
 def get_mfi(symbol):
     j = td_request("mfi", {"symbol": symbol, "interval": INTERVAL, "time_period": MFI_PERIOD})
@@ -146,18 +151,17 @@ def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, mfi):
     if price >= upper: score -= 1; reasons.append("Near upper band -1")
     elif price <= lower: score += 1; reasons.append("Near lower band +1")
 
-    # --- ADX trend strength and direction ---
-    if adx and plus_di and minus_di:
-        if adx > 25:
+        # ADX logic
+    if adx is not None and plus_di is not None and minus_di is not None:
+        if adx > ADX_THRESHOLD:
             if plus_di > minus_di:
                 score += 1
-                reasons.append("Strong bullish trend (ADX>25, +DI>-DI) +1")
+                reasons.append("ADX strong bullish trend +1")
             elif minus_di > plus_di:
                 score -= 1
-                reasons.append("Strong bearish trend (ADX>25, -DI>+DI) -1")
+                reasons.append("ADX strong bearish trend -1")
         else:
-            reasons.append("Weak trend (ADX<25)")
-
+            reasons.append("ADX trend weak (no score)")
 
     # MFI
     if mfi < 20: score += 1; reasons.append("MFI oversold +1")
@@ -233,5 +237,6 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
