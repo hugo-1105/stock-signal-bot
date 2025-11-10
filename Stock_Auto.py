@@ -232,8 +232,8 @@ def main_loop():
                 if i < len(STOCKS) - 1:
                     print("Sleeping 70s before next stock to respect API limits...")
                     time.sleep(70)
-            print("Cycle complete. Waiting 9 minutes before next round.\n")
-            time.sleep(540)
+            print("Cycle complete. Waiting 12 minutes before next round.\n")
+            time.sleep(720)
         else:
             now = datetime.now(UK_TZ).strftime("%Y-%m-%d %H:%M:%S")
             print(f"[{now}] Market closed — sleeping 10 min.")
@@ -242,9 +242,3 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
-
-
-
-
-
-
