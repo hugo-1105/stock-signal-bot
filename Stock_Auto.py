@@ -18,6 +18,8 @@ BBANDS_PERIOD = 20
 BBANDS_STDDEV = 2
 ADX_PERIOD = 14
 MFI_PERIOD = 14
+ADX_THRESHOLD = 25  # typical value for strong trend
+
 
 # Market hours (UK)
 UK_TZ = pytz.timezone("Europe/London")
@@ -126,8 +128,8 @@ def get_mfi(symbol):
 
 # ---------- Signal Decision ----------
 
-def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, mfi):
-    if None in (price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, mfi):
+def decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi):
+    if None in (price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi):
         return "INSUFFICIENT_DATA", 0, []
 
     upper, mid, lower = bb
@@ -199,10 +201,10 @@ def process_stock(symbol):
     macd, macd_sig, macd_hist = get_macd(symbol)
     rsi = get_rsi(symbol)
     bb = get_bbands(symbol)
-    adx = get_adx(symbol)
+    adx, plus_di, minus_di = get_adx(symbol)
     mfi = get_mfi(symbol)
 
-    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, mfi)
+    signal, score, reasons = decide_signal(price, sma, rsi, bb, macd, macd_sig, macd_hist, adx, plus_di, minus_di, mfi)
 
     print(f"[{ts}] {symbol} — Signal: {signal} ({score}) — {', '.join(reasons)}")
 
@@ -237,6 +239,7 @@ def main_loop():
 
 if __name__ == "__main__":
     main_loop()
+
 
 
 
