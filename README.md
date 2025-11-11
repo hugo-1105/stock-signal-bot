@@ -15,6 +15,7 @@ Optimized for **Render + Docker deployment**, designed to stay within the **Twel
   - Bollinger Bands
   - MACD (Histogram-based momentum)
   - MFI (Money Flow Index)
+  - CCI (Commodity Channel Index)
 - **Market-Aware Scheduler** — Runs only during US market hours (adjusted for UK time zone).  
 - **Render-Friendly** — Background process runs continuously via Docker, no Flask or web endpoints required.
 
