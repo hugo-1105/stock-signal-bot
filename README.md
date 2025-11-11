@@ -1,144 +1,127 @@
-📈 US Multi-Stock Signal Bot (Twelve Data + Telegram)
+# 📈 Multi-Stock Signal Bot — Twelve Data + Telegram
 
-This project is an automated stock signal bot that analyzes multiple U.S. stocks using technical indicators from the Twelve Data API
-, generates buy/sell/hold signals, and sends live alerts to Telegram.
+An automated **multi-stock trading signal bot** that analyzes top US stocks using multiple technical indicators and sends real-time alerts via **Telegram**.  
+Optimized for **Render + Docker deployment**, designed to stay within the **Twelve Data 800 requests/day** free-tier limit.
 
-The bot is designed for 24/7 deployment on Render as a background service (using Docker), running continuously during U.S. market hours.
+---
 
-🧠 Features
+## 🚀 Features
 
-✅ Multi-stock support (currently 4 U.S. stocks: V, NVDA, GOOGL, AAPL)
+- **Multi-Stock Scanning** — Monitors 4 selected US stocks in rotation.  
+- **Real-Time Alerts** — Sends buy/sell/hold signals directly to your Telegram chat.  
+- **Smart Indicator Fusion** — Uses a balanced scoring system from 5 proven technical indicators:
+  - RSI (Relative Strength Index)
+  - SMA (Simple Moving Average)
+  - Bollinger Bands
+  - MACD (Histogram-based momentum)
+  - MFI (Money Flow Index)
+- **Market-Aware Scheduler** — Runs only during US market hours (adjusted for UK time zone).  
+- **Render-Friendly** — Background process runs continuously via Docker, no Flask or web endpoints required.
 
-✅ Uses 5 technical indicators:
+---
 
-SMA (Simple Moving Average)
+## 🧠 How It Works
 
-RSI (Relative Strength Index)
+Every cycle, the bot checks each stock sequentially (e.g., NVDA, GOOGL, AAPL, V):
 
-MACD (Moving Average Convergence Divergence)
+1. Fetches latest data from the **Twelve Data API**.  
+2. Computes each indicator.  
+3. Applies a scoring system to decide the signal:  
+   - `STRONG BUY ❇️❇️`
+   - `WEAK BUY ❇️`
+   - `HOLD`
+   - `WEAK SELL 🈹`
+   - `STRONG SELL 🈹🈹`
+4. Logs output in Render console and sends Telegram alerts for actionable signals.
 
-Bollinger Bands
+---
 
-EMA (Exponential Moving Average) as a fallback
+## 📊 Indicator Logic Summary
 
-✅ Dynamic scoring system (integrates all indicators)
+| Indicator | Logic | Contribution |
+|------------|--------|---------------|
+| **RSI** | Detects overbought/oversold conditions | ±1 to ±2 |
+| **SMA** | Confirms trend direction vs. price | ±1 |
+| **Bollinger Bands** | Evaluates price position in volatility range | ±1 |
+| **MACD (Histogram)** | Detects momentum and crossover | ±1 |
+| **MFI** | Volume-weighted overbought/oversold check | ±1 |
+| **CCI** | Measures momentum deviation from typical price (like RSI but more sensitive). | ±1 |
+---
 
-✅ Telegram alerts only when a BUY/SELL signal is detected
+## ⚙️ Environment Setup
 
-✅ Respects Twelve Data’s free-tier limits
-(≤ 8 requests/min, ≤ 800 requests/day)
+### 1️⃣ Required API Keys
+You’ll need:
+- [Twelve Data API Key](https://twelvedata.com)
+- [Telegram Bot Token](https://core.telegram.org/bots)
+- Telegram **Chat ID**
 
-✅ Automatic handling of U.S. market hours (14:30–21:00 UK time)
+---
 
-✅ Docker-based — perfect for Render background services
+### 2️⃣ Environment Variables
 
-🧩 Signal Logic Overview
-| Indicator           | Logic                                      | Score Impact |
-| ------------------- | ------------------------------------------ | ------------ |
-| **RSI**             | Oversold (<30) → +2, Overbought (>70) → -2 | ±2           |
-| **MACD Line**       | Above signal → +1, Below → -1              | ±1           |
-| **MACD Histogram**  | Positive → +1, Negative → -1               | ±1           |
-| **SMA**             | Price above SMA → +1, below → -1           | ±1           |
-| **Bollinger Bands** | Near lower band → +1, upper band → -1      | ±1           |
-| **EMA** (fallback)  | Slope up → +1, slope down → -1             | ±1           |
+Create a `.env` file (or configure environment variables in Render):
 
-🔹 Signal Classification
-| Total Score | Decision             |
-| ----------- | -------------------- |
-| ≥ +4        | **STRONG BUY** ❇️❇️  |
-| +3          | **WEAK BUY** ❇️      |
-| -3          | **WEAK SELL** 🈹     |
-| ≤ -4        | **STRONG SELL** 🈹🈹 |
-| Otherwise   | **HOLD**             |
+```env
+TWELVEDATA_API_KEY=your_twelve_data_api_key
+TELEGRAM_TOKEN=your_telegram_bot_token
+TELEGRAM_CHAT_ID=your_chat_id
+```
+🕓 Runtime Logic
 
-⚙️ Configuration
+Runs only during US market hours (14:30–21:00 UK time).
 
-Edit or set these environment variables in Render or your .env file:
+Sleeps 70 seconds between each stock to respect API limits.
 
-| Variable             | Description                                                         |
-| -------------------- | ------------------------------------------------------------------- |
-| `TWELVEDATA_API_KEY` | Your [Twelve Data](https://twelvedata.com/apikey) API key           |
-| `TELEGRAM_TOKEN`     | Telegram bot token from [@BotFather](https://t.me/BotFather)        |
-| `TELEGRAM_CHAT_ID`   | Your Telegram user or group chat ID                                 |
-| *(Optional)*         | Modify stock list, intervals, or thresholds in `Stock_Auto_Test.py` |
+Sleeps 9 minutes between full cycles to complete 15-min intervals.
 
-🐳 Docker Setup
-Dockerfile
-FROM python:3.12-slim
-WORKDIR /app
-COPY . .
-RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
-CMD ["python", "Stock_Auto_Test.py"]
+Sleeps 10 minutes when the market is closed.
 
-requirements.txt
-requests==2.31.0
-pandas==2.2.2
-numpy==1.26.4
-pytz==2024.1
-twelvedata==1.2.7
+API Limit Calculation
 
-🚀 Deploy on Render
+4 stocks × 7 requests per stock ≈ 28 requests per cycle
+
+Each full 15-min cycle = 28 requests
+
+≈ 96 cycles/day (6.5 hours × 4 cycles/hour)
+
+≈ 728 requests/day ✅ within 800 limit
+
+🧱 Deployment (Render)
 
 Push your code to GitHub.
 
-Create a new Background Service on Render.com
-.
+Create a new Render Web Service → connect your repo.
 
-Connect your GitHub repo.
+Choose Python + Docker environment.
 
-Choose your branch (main) and runtime: Docker.
+Set environment variables (API keys).
 
-Add environment variables:
+Deploy — your bot will start running automatically.
 
-TWELVEDATA_API_KEY
+📦 License
 
-TELEGRAM_TOKEN
+MIT License © 2025 — Created by Hugo Pook
+You may freely use, modify, and deploy with attribution.
 
-TELEGRAM_CHAT_ID
+💡 Future Improvements
 
-Deploy — Render will automatically build your Docker image.
+Add CCI or Stochastic Oscillator for better volatility detection
 
-Once deployed, your bot will:
+Store daily performance logs in CSV (for backtesting)
 
-Run continuously.
+Implement auto-tuning of indicator thresholds
 
-Sleep 10 minutes when the market is closed.
+Add Telegram commands to query live status (/status, /last_signal)
 
-Loop through stocks every ~15 minutes during open hours.
+📬 Telegram Output Example
+📊 NVDA (2025-11-09 18:15:00 UK)
+Decision: STRONG BUY ❇️❇️
+Score: 4
+Price: 132.45
+RSI: 28.4
+SMA: 129.9
+MACD hist: 0.16
+MFI: 18.7
+BB: (133.2, 130.5, 127.8)
 
-🧮 API Usage Calculation
-
-Each stock uses ~5 API requests per cycle (price, SMA, RSI, MACD, BBANDS).
-
-For 4 stocks:
-
-≈ 20 requests per full cycle
-
-Run safely every 15 minutes to stay within:
-
-8 requests/min limit
-
-800 requests/day limit
-
-If you reduce the stock count to 3, you can increase frequency to every 10 minutes safely.
-
-🧠 Example Log Output
-🚀 Multi-Stock Signal Bot started — running every 15 min cycle.
-
-=== Checking NVDA ===
-[2025-11-09 14:30:15] NVDA — Signal: STRONG BUY (5) — 
-RSI oversold +2, MACD bullish +1, Price above SMA +1, Near lower band +1
-📊 Telegram alert sent.
-
-🧾 License
-
-This project is open source and available under the MIT License.
-
-💡 Tips
-
-To debug API behavior, test indicators individually using Stock_Auto_Test.py.
-
-Ensure your Render plan supports continuous background tasks (free plans may sleep after inactivity).
-
-You can adjust INTERVAL, scoring weights, or stock list freely.
